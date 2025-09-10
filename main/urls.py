@@ -11,4 +11,5 @@ urlpatterns = [
     path('json/', show_json, name='show_json'),
     path('xml/<str:news_id>/', show_xml_by_id, name='show_xml_by_id'),
     path('json/<str:news_id>/', show_json_by_id, name='show_json_by_id'),
+    
 ]
