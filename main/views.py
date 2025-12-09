@@ -1,42 +1,65 @@
 
 # Create your views here.
 from django.shortcuts import render, redirect, get_object_or_404
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 from main.forms import NewsForm
 from main.models import News
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.core import serializers
 from django.contrib import messages
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.utils.html import strip_tags
 import datetime
 from django.urls import reverse
-
+import requests
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.html import strip_tags
+import json
+from django.http import JsonResponse
 
 @csrf_exempt
-@require_POST
-def add_news_entry_ajax(request):
-    title = strip_tags(request.POST.get("title")) # strip HTML tags!
-    content = strip_tags(request.POST.get("content")) # strip HTML tags!
-    category = request.POST.get("category")
-    thumbnail = request.POST.get("thumbnail")
-    is_featured = request.POST.get("is_featured") == 'on'  # checkbox handling
-    user = request.user
+def create_news_flutter(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        title = strip_tags(data.get("title", ""))  # Strip HTML tags
+        content = strip_tags(data.get("content", ""))  # Strip HTML tags
+        category = data.get("category", "")
+        thumbnail = data.get("thumbnail", "")
+        is_featured = data.get("is_featured", False)
+        user = request.user
+        
+        new_news = News(
+            title=title, 
+            content=content,
+            category=category,
+            thumbnail=thumbnail,
+            is_featured=is_featured,
+            user=user
+        )
+        new_news.save()
+        
+        return JsonResponse({"status": "success"}, status=200)
+    else:
+        return JsonResponse({"status": "error"}, status=401)
+    
+def proxy_image(request):
+    image_url = request.GET.get('url')
+    if not image_url:
+        return HttpResponse('No URL provided', status=400)
+    
+    try:
+        # Fetch image from external source
+        response = requests.get(image_url, timeout=10)
+        response.raise_for_status()
+        
+        # Return the image with proper content type
+        return HttpResponse(
+            response.content,
+            content_type=response.headers.get('Content-Type', 'image/jpeg')
+        )
+    except requests.RequestException as e:
+        return HttpResponse(f'Error fetching image: {str(e)}', status=500)  
 
-    new_news = News(
-        title=title, 
-        content=content,
-        category=category,
-        thumbnail=thumbnail,
-        is_featured=is_featured,
-        user=user
-    )
-    new_news.save()
-
-    return HttpResponse(b"CREATED", status=201)
 
 def delete_news(request, id):
     news = get_object_or_404(News, pk=id)
@@ -124,41 +147,16 @@ def show_xml_by_id(request, news_id):
 
 def show_json(request):
     news_list = News.objects.all()
-    data = [
-        {
-            'id': str(news.id),
-            'title': news.title,
-            'content': news.content,
-            'category': news.category,
-            'thumbnail': news.thumbnail,
-            'news_views': news.news_views,
-            'created_at': news.created_at.isoformat() if news.created_at else None,
-            'is_featured': news.is_featured,
-            'user_id': news.user_id,
-        }
-        for news in news_list
-    ]
-
-    return JsonResponse(data, safe=False)
+    json_data = serializers.serialize("json", news_list)
+    return HttpResponse(json_data, content_type="application/json")
 
 def show_json_by_id(request, news_id):
-    try:
-        news = News.objects.select_related('user').get(pk=news_id)
-        data = {
-            'id': str(news.id),
-            'title': news.title,
-            'content': news.content,
-            'category': news.category,
-            'thumbnail': news.thumbnail,
-            'news_views': news.news_views,
-            'created_at': news.created_at.isoformat() if news.created_at else None,
-            'is_featured': news.is_featured,
-            'user_id': news.user_id,
-            'user_username': news.user.username if news.user_id else None,
-        }
-        return JsonResponse(data)
-    except News.DoesNotExist:
-        return JsonResponse({'detail': 'Not found'}, status=404)
+   try:
+       news_item = News.objects.get(pk=news_id)
+       json_data = serializers.serialize("json", [news_item])
+       return HttpResponse(json_data, content_type="application/json")
+   except News.DoesNotExist:
+       return HttpResponse(status=404)
 
 def create_news(request):
     form = NewsForm(request.POST or None)
